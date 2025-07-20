@@ -52,7 +52,7 @@ def sliding_windows(data, seq_length, pred_length=4):
 sc = MinMaxScaler()
 training_data = sc.fit_transform(training_set)
 seq_length = 1024 # 4 * 24 * 7
-pred_length = 4
+pred_length = 4 # Predict next 4 time steps
 x, y = sliding_windows(training_data, seq_length, pred_length)
 
 print("x shape:", x.shape)
