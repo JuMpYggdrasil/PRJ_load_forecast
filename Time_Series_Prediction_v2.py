@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
+from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
 import os
 
@@ -18,13 +18,11 @@ df.set_index('Date', inplace=True)
 df = df.resample('15min').mean()
 
 training_set = df['Load'].values.reshape(-1, 1)
-
-plt.plot(training_set, label = 'Time Series Dataset')
+plt.plot(training_set, label='Time Series Dataset')
 plt.show()
 
 def sliding_windows(data, seq_length, pred_length=4):
-    x = []
-    y = []
+    x, y = [], []
     for i in range(len(data) - seq_length - pred_length + 1):
         _x = data[i:(i+seq_length)]
         _y = data[i+seq_length:i+seq_length+pred_length].reshape(-1)
@@ -32,50 +30,45 @@ def sliding_windows(data, seq_length, pred_length=4):
         y.append(_y)
     return np.array(x), np.array(y)
 
+# Normalize and create sequences
 sc = MinMaxScaler()
 training_data = sc.fit_transform(training_set)
-
-# Create sliding windows
-seq_length = 4*24*7  # 1 weeks of 15-minute intervals
+seq_length = 4 * 24 * 7
 pred_length = 4
 x, y = sliding_windows(training_data, seq_length, pred_length)
 
 print("x shape:", x.shape)
 print("y shape:", y.shape)
-# print("First x sample:\n", x[0])
-# print("First y sample:\n", y[0])
 
+# Convert to tensors
+X_tensor = torch.tensor(x, dtype=torch.float32)
+Y_tensor = torch.tensor(y, dtype=torch.float32)
+
+# Split data
 train_size = int(len(y) * 0.67)
-test_size = len(y) - train_size
+trainX, testX = X_tensor[:train_size], X_tensor[train_size:]
+trainY, testY = Y_tensor[:train_size], Y_tensor[train_size:]
 
-# Move tensors to device
-dataX = torch.tensor(x, dtype=torch.float32).to(device)
-dataY = torch.tensor(y, dtype=torch.float32).to(device)
-trainX = torch.tensor(x[0:train_size], dtype=torch.float32).to(device)
-trainY = torch.tensor(y[0:train_size], dtype=torch.float32).to(device)
-testX = torch.tensor(x[train_size:], dtype=torch.float32).to(device)
-testY = torch.tensor(y[train_size:], dtype=torch.float32).to(device)
+# Datasets and loaders
+batch_size = 128
+train_dataset = TensorDataset(trainX, trainY)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
 
+# LSTM Model
 class LSTM(nn.Module):
     def __init__(self, num_classes, input_size, hidden_size, num_layers):
         super(LSTM, self).__init__()
-        self.num_classes = num_classes
-        self.num_layers = num_layers
-        self.input_size = input_size
-        self.hidden_size = hidden_size
-        self.seq_length = seq_length
-        self.lstm = nn.LSTM(input_size=input_size, hidden_size=hidden_size,
-                            num_layers=num_layers, batch_first=True)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)
-        c_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(device)
-        ula, (h_out, _) = self.lstm(x, (h_0, c_0))
-        h_out = h_out.view(-1, self.hidden_size)
-        out = self.fc(h_out)
+        h_0 = torch.zeros(num_layers, x.size(0), hidden_size).to(device)
+        c_0 = torch.zeros(num_layers, x.size(0), hidden_size).to(device)
+        out, _ = self.lstm(x, (h_0, c_0))
+        out = self.fc(out[:, -1, :])
         return out
 
+# Hyperparameters
 num_epochs = 1000
 learning_rate = 0.01
 input_size = 1
@@ -83,47 +76,45 @@ hidden_size = 2
 num_layers = 1
 num_classes = pred_length
 
+# Model setup
 lstm = LSTM(num_classes, input_size, hidden_size, num_layers).to(device)
-
-criterion = torch.nn.MSELoss()
+criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(lstm.parameters(), lr=learning_rate)
 
-# Check if trained model exists
 model_path = "trained_lstm_model.pth"
 if os.path.exists(model_path):
-    lstm.load_state_dict(torch.load(model_path, map_location=device, weights_only=True))
+    lstm.load_state_dict(torch.load(model_path, map_location=device))
     lstm.eval()
-    print("Loaded trained model from trained_lstm_model.pth")
+    print("Loaded trained model.")
 else:
-    # Train the model
     for epoch in range(num_epochs):
-        outputs = lstm(trainX)
-        optimizer.zero_grad()
-        loss = criterion(outputs, trainY)
-        loss.backward()
-        optimizer.step()
+        lstm.train()
+        total_loss = 0
+        for batch_x, batch_y in train_loader:
+            batch_x = batch_x.to(device)
+            batch_y = batch_y.to(device)
+            outputs = lstm(batch_x)
+            loss = criterion(outputs, batch_y)
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
         if epoch % 100 == 0:
-            print("Epoch: %d, loss: %1.5f" % (epoch, loss.item()))
-    # Save the trained model to a file
+            print(f"Epoch {epoch}, Loss: {total_loss:.5f}")
     torch.save(lstm.state_dict(), model_path)
-    print("Trained model saved as trained_lstm_model.pth")
+    print("Trained model saved.")
 
-    lstm.eval()
-
-# Predict
+# Prediction
+lstm.eval()
+dataX_tensor = torch.tensor(x, dtype=torch.float32).to(device)
 with torch.no_grad():
-    train_predict = lstm(dataX)
-    data_predict = train_predict.cpu().numpy()
-    dataY_plot = dataY.cpu().numpy()
+    train_predict = lstm(dataX_tensor).cpu().numpy()
+    actual = y
 
-data_predict = sc.inverse_transform(data_predict)
-dataY_plot = sc.inverse_transform(dataY_plot)
-print("dataY_plot shape:", dataY_plot.shape)
+data_predict = sc.inverse_transform(train_predict)
+dataY_plot = sc.inverse_transform(actual)
 dataY_plot_show = dataY_plot[:, 0]
-print("Model is on device:", next(lstm.parameters()).device)
 
-
-# Save and show the main prediction plot
 plt.axvline(x=train_size, c='r', linestyle='--')
 plt.plot(dataY_plot_show, label='Actual')
 plt.plot(data_predict, label='Predicted', linestyle='--')
@@ -135,13 +126,14 @@ plt.savefig('time_series_prediction.png')
 plt.show()
 plt.close()
 
-# Save and show sliding window sample plots from selected indices
+# Sliding window sample plots
 start_point = 30000
 selected_indices = list(range(start_point, start_point + 10))
 
+dataX_cpu = X_tensor.cpu()
 for idx, i in enumerate(selected_indices):
     plt.figure(figsize=(8,3))
-    input_window = sc.inverse_transform(dataX[i].cpu().numpy())
+    input_window = sc.inverse_transform(dataX_cpu[i].numpy())
     prediction_window = data_predict[i].reshape(-1, 1)
     actual_window = dataY_plot[i].reshape(-1, 1)
     plt.plot(range(seq_length), input_window, marker='o', label='Input Window')
