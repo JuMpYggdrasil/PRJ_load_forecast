@@ -7,6 +7,8 @@ from torch.utils.data import DataLoader, TensorDataset
 from sklearn.preprocessing import MinMaxScaler
 import os
 from scipy.signal import savgol_filter
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
+
 
 # Set device
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -37,7 +39,8 @@ df = df_filtered
 
 training_set = df['Load'].values.reshape(-1, 1)
 plt.plot(training_set, label='Time Series Dataset')
-plt.show()
+# plt.show()
+plt.close()
 
 def sliding_windows(data, seq_length, pred_length=4):
     x, y = [], []
@@ -51,8 +54,8 @@ def sliding_windows(data, seq_length, pred_length=4):
 # Normalize and create sequences
 sc = MinMaxScaler()
 training_data = sc.fit_transform(training_set)
-seq_length = 1024 # 4 * 24 * 7
-pred_length = 4 # Predict next 4 time steps
+seq_length = 8 # 4 * 24 * 7
+pred_length = 2 # Predict next n-time steps
 x, y = sliding_windows(training_data, seq_length, pred_length)
 
 print("x shape:", x.shape)
@@ -141,7 +144,7 @@ plt.ylabel('Load (kW)')
 plt.legend()
 plt.suptitle('Time-Series Prediction')
 plt.savefig('time_series_prediction.png')
-plt.show()
+# plt.show()
 plt.close()
 
 # Sliding window sample plots
@@ -162,5 +165,49 @@ for idx, i in enumerate(selected_indices):
     plt.ylabel('Load (kW)')
     plt.legend()
     plt.savefig(f'sliding_window_sample_{i}.png')
-    plt.show()
+    # plt.show()
     plt.close()
+
+
+# Evaluation
+mse = mean_squared_error(dataY_plot[:, 0], data_predict[:, 0])
+mae = mean_absolute_error(dataY_plot[:, 0], data_predict[:, 0])
+r2 = r2_score(dataY_plot[:, 0], data_predict[:, 0])
+
+print(f"Performance Metrics:")
+print(f"  MSE  = {mse:.4f}")
+print(f"  MAE  = {mae:.4f}")
+print(f"  R²   = {r2:.4f}")
+
+errors = data_predict[:, 0] - dataY_plot[:, 0]
+plt.figure(figsize=(6, 4))
+plt.hist(errors, bins=50, color='skyblue', edgecolor='black')
+plt.title("Prediction Error Distribution")
+plt.xlabel("Error (Predicted - Actual)")
+plt.ylabel("Frequency")
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('error_distribution.png')
+# plt.show()
+plt.close()
+
+results_df = pd.DataFrame({
+    'Model': ["LSTM"],          # <--- Make sure this is ["LSTM"]
+    'MSE': [mse],               # <--- Make sure this is [mse]
+    'MAE': [mae],               # <--- Make sure this is [mae]
+    'R2': [r2],                 # <--- Make sure this is [r2]
+    'LearningRate': [learning_rate],
+    'InputSize': [input_size],
+    'HiddenSize': [hidden_size],
+    'NumLayers': [num_layers],
+    'SeqLength': [seq_length],
+    'WindowLength': [window_length],
+    'PolyOrder': [polyorder]
+})
+
+# Append to CSV file
+output_file = "model_summary_results.csv"
+if os.path.exists(output_file):
+    results_df.to_csv(output_file, mode='a', header=False, index=False)
+else:
+    results_df.to_csv(output_file, mode='w', header=True, index=False)
