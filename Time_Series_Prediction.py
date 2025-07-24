@@ -15,9 +15,11 @@ device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
 # Load data
-df = pd.read_csv('combined_data.csv')
+df = pd.read_csv('ratch_data.csv')
 # df = pd.read_csv('number_data.csv')
-df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H.%M')
+# df = pd.read_csv('combined_data.csv')
+# df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H.%M')
+df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H:%M')
 df.set_index('Date', inplace=True)
 df = df.resample('15min').mean()
 
@@ -54,7 +56,7 @@ def sliding_windows(data, seq_length, pred_length=4):
 # Normalize and create sequences
 sc = MinMaxScaler()
 training_data = sc.fit_transform(training_set)
-seq_length = 8 # 4 * 24 * 7
+seq_length = 64 # 4 * 24 * 7
 pred_length = 2 # Predict next n-time steps
 x, y = sliding_windows(training_data, seq_length, pred_length)
 
@@ -91,10 +93,10 @@ class LSTM(nn.Module):
 
 # Hyperparameters
 num_epochs = 1000
-learning_rate = 0.01
+learning_rate = 0.001
 input_size = 1
-hidden_size = 2
-num_layers = 1
+hidden_size = 16
+num_layers = 2
 num_classes = pred_length
 
 # Model setup
@@ -148,8 +150,8 @@ plt.savefig('time_series_prediction.png')
 plt.close()
 
 # Sliding window sample plots
-start_point = 30000
-selected_indices = list(range(start_point, start_point + 10))
+start_point = 3412
+selected_indices = list(range(start_point, start_point + 20))
 
 dataX_cpu = X_tensor.cpu()
 for idx, i in enumerate(selected_indices):
@@ -211,3 +213,14 @@ if os.path.exists(output_file):
     results_df.to_csv(output_file, mode='a', header=False, index=False)
 else:
     results_df.to_csv(output_file, mode='w', header=True, index=False)
+
+
+def mean_absolute_percentage_error(y_true, y_pred):
+    return np.mean(np.abs((y_true - y_pred) / y_true)) * 100
+
+mask = dataY_plot[:, 0] != 0
+mape = mean_absolute_percentage_error(dataY_plot[mask, 0], data_predict[mask, 0])
+accuracy = 100 - mape
+
+print(f"  MAPE = {mape:.2f}%")
+print(f"  Accuracy (100 - MAPE) = {accuracy:.2f}%")
