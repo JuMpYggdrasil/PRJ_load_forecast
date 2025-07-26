@@ -10,16 +10,16 @@ from scipy.signal import savgol_filter
 from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 
 class LSTM(nn.Module):
-    def __init__(self, num_classes, input_size, hidden_size, num_layer):
+    def __init__(self, num_classes, input_size, hidden_size, stacked_size, dropout):
         super(LSTM, self).__init__()
         self.hidden_size = hidden_size
-        self.num_layer = num_layer
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layer, batch_first=True)
+        self.stacked_size = stacked_size
+        self.lstm = nn.LSTM(input_size, hidden_size, stacked_size, batch_first=True, dropout=dropout)
         self.fc = nn.Linear(hidden_size, num_classes)
 
     def forward(self, x):
-        h_0 = torch.zeros(self.num_layer, x.size(0), self.hidden_size).to(x.device)
-        c_0 = torch.zeros(self.num_layer, x.size(0), self.hidden_size).to(x.device)
+        h_0 = torch.zeros(self.stacked_size, x.size(0), self.hidden_size).to(x.device)
+        c_0 = torch.zeros(self.stacked_size, x.size(0), self.hidden_size).to(x.device)
         out, _ = self.lstm(x, (h_0, c_0))
         out = self.fc(out[:, -1, :])
         return out
@@ -37,7 +37,8 @@ def sliding_windows(data, seq_length, pred_length=4):
 
 def time_series_prediction( seq_length = 64,
                             hidden_size = 2,
-                            num_layer = 2):
+                            stacked_size = 2,
+                            dropout = 0.2):
     # Set device
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Using device: {device}")
@@ -106,11 +107,12 @@ def time_series_prediction( seq_length = 64,
     learning_rate = 0.001
     input_size = 1
     # hidden_size = 16
-    # num_layer = 2 The number of recurrent layers in the LSTM
+    # stacked_size = 2 The number of recurrent layers in the LSTM
+    
     num_classes = pred_length
 
     # Model setup
-    lstm = LSTM(num_classes, input_size, hidden_size, num_layer).to(device)
+    lstm = LSTM(num_classes, input_size, hidden_size, stacked_size, dropout).to(device)
     criterion = nn.MSELoss()
     optimizer = torch.optim.Adam(lstm.parameters(), lr=learning_rate)
 
@@ -224,8 +226,9 @@ def time_series_prediction( seq_length = 64,
         'LearningRate': [learning_rate],
         'InputSize': [input_size],
         'HiddenSize': [hidden_size],
-        'NumLayers': [num_layer],
+        'NumLayers': [stacked_size],
         'SeqLength': [seq_length],
+        'Dropout': [dropout],
         'WindowLength': [window_length],
         'PolyOrder': [polyorder],
         'MAPE': [mape],
@@ -244,23 +247,27 @@ def time_series_prediction( seq_length = 64,
 if __name__ == "__main__":
     seq_lengths = [32, 64, 128]
     hidden_sizes = [2, 4, 16]
-    num_layers = [1, 2, 4] # The number of recurrent layers in the LSTM
+    stacked_sizes = [2, 4] # The number of recurrent layers in the LSTM (>1 if use dropout)
+    dropouts = [0.1, 0.2, 0.3, 0.4, 0.5] # Dropout rate for LSTM layers
     
     # Loop through all combinations of hyperparameters
     for sl in seq_lengths:
         for hs in hidden_sizes:
-            for nl in num_layers:
-                print(f"Starting new run with hyperparameters:")
-                print(f"  seq_length: {sl}")
-                print(f"  hidden_size: {hs}")
-                print(f"  num_layers: {nl}")
-                time_series_prediction(seq_length=sl,
-                                        hidden_size=hs,
-                                        num_layer=nl)
-                
-                file_to_delete = "trained_lstm_model.pth"
-                if os.path.exists(file_to_delete):
-                    try:
-                        os.remove(file_to_delete)
-                    except OSError as e:
-                        print(f"Error deleting file '{file_to_delete}': {e}")
+            for ss in stacked_sizes:
+                for do in dropouts:    
+                    print(f"Starting new run with hyperparameters:")
+                    print(f"  seq_length: {sl}")
+                    print(f"  hidden_size: {hs}")
+                    print(f"  stacked_sizes: {ss}")
+                    print(f"  dropout: {do}")
+                    time_series_prediction(seq_length=sl,
+                                            hidden_size=hs,
+                                            stacked_size=ss,
+                                            dropout=do)
+                    
+                    file_to_delete = "trained_lstm_model.pth"
+                    if os.path.exists(file_to_delete):
+                        try:
+                            os.remove(file_to_delete)
+                        except OSError as e:
+                            print(f"Error deleting file '{file_to_delete}': {e}")
