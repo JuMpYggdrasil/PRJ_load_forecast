@@ -29,7 +29,7 @@ def sliding_windows(data, seq_length, pred_length=4):
     x, y = [], []
     for i in range(len(data) - seq_length - pred_length + 1):
         _x = data[i:(i+seq_length)]
-        _y = data[i+seq_length:i+seq_length+pred_length].reshape(-1)
+        _y = data[i+seq_length:i+seq_length+pred_length].reshape(-1) # Flatten the target
         x.append(_x)
         y.append(_y)
     return np.array(x), np.array(y)
@@ -44,13 +44,15 @@ def time_series_prediction( seq_length = 64,
     print(f"Using device: {device}")
 
     # Load data
+    # df = pd.read_csv('airline-passengers.csv')
     df = pd.read_csv('ratch_data.csv')
     # df = pd.read_csv('number_data.csv')
     # df = pd.read_csv('combined_data.csv')
     # df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H.%M')
     df['Date'] = pd.to_datetime(df['Date'], format='%d/%m/%Y %H:%M')
+    # df['Date'] = pd.to_datetime(df['Date'], format='%Y-%m')
     df.set_index('Date', inplace=True)
-    df = df.resample('15min').mean()
+    # df = df.resample('15min').mean()
 
     window_length = 11  # Window length: Must be an odd number (e.g., 7, 11, 15, 21).
     polyorder = 3       # Polynomial order: Typically 2 or 3. Must be less than window_length.
@@ -66,20 +68,22 @@ def time_series_prediction( seq_length = 64,
         print("No smoothing applied. df_filtered is a copy of the original df.")
         df_filtered = df.copy()
 
-    df = df_filtered
 
-    training_set = df['Load'].values.reshape(-1, 1)
-    plt.plot(training_set, label='Time Series Dataset')
+    plt.plot(df, label='Original Dataset')
+    plt.plot(df_filtered, label='filtered Dataset', linestyle='--')
+    plt.savefig('filter_data.png')
     # plt.show()
     plt.close()
-
+    
+    df = df_filtered
+    training_set = df['Load'].values.reshape(-1, 1)
 
 
     # Normalize and create sequences
     sc = MinMaxScaler()
     training_data = sc.fit_transform(training_set)
     # seq_length = 64 # 4 * 24 * 7
-    pred_length = 2 # Predict next n-time steps
+    pred_length = 4 # Predict next n-time steps
     x, y = sliding_windows(training_data, seq_length, pred_length)
 
     print("x shape:", x.shape)
@@ -104,7 +108,7 @@ def time_series_prediction( seq_length = 64,
 
     # Hyperparameters
     num_epochs = 1000
-    learning_rate = 0.001
+    learning_rate = 0.01
     input_size = 1
     # hidden_size = 16
     # stacked_size = 2 The number of recurrent layers in the LSTM
@@ -162,25 +166,25 @@ def time_series_prediction( seq_length = 64,
     plt.close()
 
     # Sliding window sample plots
-    start_point = 3412
-    selected_indices = list(range(start_point, start_point + 20))
+    start_point = 0
+    selected_indices = list(range(start_point, start_point + 10))
 
     dataX_cpu = X_tensor.cpu()
-    # for idx, i in enumerate(selected_indices):
-    #     plt.figure(figsize=(8,3))
-    #     input_window = sc.inverse_transform(dataX_cpu[i].numpy())
-    #     prediction_window = data_predict[i].reshape(-1, 1)
-    #     actual_window = dataY_plot[i].reshape(-1, 1)
-    #     plt.plot(range(seq_length), input_window, marker='o', label='Input Window')
-    #     plt.plot(range(seq_length, seq_length+pred_length), prediction_window, marker='x', label='Prediction')
-    #     plt.plot(range(seq_length, seq_length+pred_length), actual_window, marker='s', label='Actual')
-    #     plt.title(f'Sliding Window Sample (Index {i})')
-    #     plt.xlabel('Time Step')
-    #     plt.ylabel('Load (kW)')
-    #     plt.legend()
-    #     plt.savefig(f'sliding_window_sample_{i}.png')
-    #     # plt.show()
-    #     plt.close()
+    for idx, i in enumerate(selected_indices):
+        plt.figure(figsize=(8,3))
+        input_window = sc.inverse_transform(dataX_cpu[i].numpy())
+        prediction_window = data_predict[i].reshape(-1, 1)
+        actual_window = dataY_plot[i].reshape(-1, 1)
+        plt.plot(range(seq_length), input_window, marker='o', label='Input Window')
+        plt.plot(range(seq_length, seq_length+pred_length), prediction_window, marker='x', label='Prediction')
+        plt.plot(range(seq_length, seq_length+pred_length), actual_window, marker='s', label='Actual')
+        plt.title(f'Sliding Window Sample (Index {i})')
+        plt.xlabel('Time Step')
+        plt.ylabel('Load (kW)')
+        plt.legend()
+        plt.savefig(f'sliding_window_sample_{i}.png')
+        # plt.show()
+        plt.close()
 
 
     # Evaluation
@@ -219,14 +223,14 @@ def time_series_prediction( seq_length = 64,
 
 
     results_df = pd.DataFrame({
-        'Model': ["LSTM"],          # <--- Make sure this is ["LSTM"]
-        'MSE': [mse],               # <--- Make sure this is [mse]
-        'MAE': [mae],               # <--- Make sure this is [mae]
-        'R2': [r2],                 # <--- Make sure this is [r2]
+        'Model': ["LSTM"],
+        'MSE': [mse],
+        'MAE': [mae],
+        'R2': [r2],
         'LearningRate': [learning_rate],
         'InputSize': [input_size],
         'HiddenSize': [hidden_size],
-        'NumLayers': [stacked_size],
+        'StackedSize': [stacked_size],
         'SeqLength': [seq_length],
         'Dropout': [dropout],
         'WindowLength': [window_length],
@@ -245,29 +249,4 @@ def time_series_prediction( seq_length = 64,
     return results_df
 
 if __name__ == "__main__":
-    seq_lengths = [32, 64, 128]
-    hidden_sizes = [2, 4, 16]
-    stacked_sizes = [2, 4] # The number of recurrent layers in the LSTM (>1 if use dropout)
-    dropouts = [0.1, 0.2, 0.3, 0.4, 0.5] # Dropout rate for LSTM layers
-    
-    # Loop through all combinations of hyperparameters
-    for sl in seq_lengths:
-        for hs in hidden_sizes:
-            for ss in stacked_sizes:
-                for do in dropouts:    
-                    print(f"Starting new run with hyperparameters:")
-                    print(f"  seq_length: {sl}")
-                    print(f"  hidden_size: {hs}")
-                    print(f"  stacked_sizes: {ss}")
-                    print(f"  dropout: {do}")
-                    time_series_prediction(seq_length=sl,
-                                            hidden_size=hs,
-                                            stacked_size=ss,
-                                            dropout=do)
-                    
-                    file_to_delete = "trained_lstm_model.pth"
-                    if os.path.exists(file_to_delete):
-                        try:
-                            os.remove(file_to_delete)
-                        except OSError as e:
-                            print(f"Error deleting file '{file_to_delete}': {e}")
+    time_series_prediction(seq_length= 128,hidden_size=16,stacked_size=2,dropout=0)
