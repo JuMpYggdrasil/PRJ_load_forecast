@@ -1,29 +1,40 @@
-# AGENTS.md
+# AGENTS.md — PRJ_load_forecast
 
 ## Project
-LSTM time-series load forecasting (Python 3.10, PyTorch CUDA 12.1). Flat directory, no packages, no tests, no CI.
 
-## Setup
-- venv at `.venv` (Python 3.10.11)
-- `pip install -r requirements.txt`
-- GPU optional; code auto-falls back to CPU
-- `python check_cuda.py` — diagnostics for GPU, PyTorch, and (if expanding into Deep RL) gymnasium/stable_baselines3
+LSTM time-series load forecasting for EGAT (Electricity Generating Authority of Thailand). Predicts electrical load (kW) at 15-minute granularity from CSV data.
 
-## Commands
-- **Train + evaluate:** `python Time_Series_Prediction.py`
-  - Reads `ratch_data.csv` (`Date`, `Load`; `dd/mm/yyyy HH:MM`; 15-min intervals)
-  - Savitzky-Golay smoothing (window=11, polyorder=3), 67/33 split, batch 1024, 1000 epochs, lr 0.01
-  - Loads `trained_lstm_model.pth` if it exists, otherwise trains and saves it
-  - Outputs: `filter_data.png`, `time_series_prediction.png`, `sliding_window_sample_*.png`, appends to `model_summary_results.csv`
-- **Hyperparameter sweep:** `python loop_prediction.py` — iterates all combos of seq_length, hidden_size, stacked_size, dropout; deletes `trained_lstm_model.pth` between runs (intentional)
-- **Profiling:** `python Time_Series_Prediction_profiling.py` — uses `combined_data.csv`, writes TensorBoard traces to `log/profiler/`
-- **Old/unused:** `backup.py`, `timeserie_predict_old.py` — legacy versions, ignore unless explicitly needed
+## Entrypoint
 
-## Key gotchas
-- No `.gitignore` — `.venv/`, `__pycache__/`, `.pth`, `.png`, `.csv`, `log/profiler/*.json` are all git-tracked. Do not commit venv or large artifacts unless asked.
-- Default hyperparams in `Time_Series_Prediction.py` `__main__`: `seq_length=128, hidden_size=16, stacked_size=2, dropout=0`
-- `Time_Series_Prediction_profiling.py` uses `combined_data.csv` and a different date format (`%d/%m/%Y %H.%M` with dot) — do not confuse with `ratch_data.csv`
-- Profiler traces viewed via `tensorboard --logdir log/profiler`
+- `Time_Series_Prediction.py` — main script, function `time_series_prediction()`
+- `loop_prediction.py` — hyperparameter sweeper importing the function above
 
-## No test/lint/typecheck
-No tests, linter, formatter, or type checker. Verify by running scripts and checking console output/plots.
+## Run commands
+
+```powershell
+.venv\Scripts\python Time_Series_Prediction.py
+.venv\Scripts\python loop_prediction.py
+.venv\Scripts\python Time_Series_Prediction_profiling.py
+.venv\Scripts\python check_cuda.py          # verify CUDA/GPU setup
+```
+
+## Critical quirks
+
+- **Date format varies by CSV**: `ratch_data.csv` uses `%d/%m/%Y %H:%M`; `combined_data.csv` and `number_data.csv` use `%H.%M`. The active line in `Time_Series_Prediction.py` defaults to the `ratch_data` format. Swap commented lines if switching datasets.
+- **Model cache**: `trained_lstm_model.pth` is loaded automatically if present. Delete it to force retraining. `loop_prediction.py` does this per iteration.
+- **Savgol filter**: `window_length` must be odd, `polyorder` < `window_length`.
+- **Output plots** written to repo root: `time_series_prediction.png`, `filter_data.png`, `error_distribution.png`, `sliding_window_sample_*.png`
+- **Results logged** to `model_summary_results.csv` (MSE, MAE, R², MAPE, Accuracy, hyperparameters)
+
+## Dependencies
+
+Python venv at `.venv\`. Install with:
+```
+.venv\Scripts\pip install -r requirements.txt
+```
+
+Key: PyTorch 2.5.1+cu121, pandas 2.3.1, scikit-learn 1.7.1, matplotlib 3.10.3.
+
+## Project context
+
+`.opencode/rules.md` contains Thai-language business-agent rules for this EGAT energy innovation project. Check it for context-specific conventions.
